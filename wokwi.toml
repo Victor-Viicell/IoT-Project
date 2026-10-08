@@ -1,0 +1,14 @@
+[wokwi]
+version = 1
+
+# MicroPython firmware for the classic ESP32 (ESP32-DevKitC V4, ESP32-WROOM-32).
+# Download it from:
+# https://raw.githubusercontent.com/wokwi/wokwi-vscode-micropython/main/esp32/ESP32_GENERIC-20251209-v1.27.0.bin
+# and keep it next to this file (project root).
+firmware = "ESP32_GENERIC-20251209-v1.27.0.bin"
+elf = "ESP32_GENERIC-20251209-v1.27.0.bin"
+
+# Enables the RFC2217 serial bridge on localhost:4000 so you can upload
+# files with mpremote, e.g.:
+#   mpremote connect port:rfc2217://localhost:4000 fs cp main.py :main.py
+rfc2217ServerPort = 4000

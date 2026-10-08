@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "author": "IoT Project",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+
+    { "type": "wokwi-lcd1602", "id": "lcd1", "top": -1100, "left": -1050,
+      "attrs": { "pins": "i2c", "background": "blue", "color": "white" } },
+    { "type": "board-mfrc522", "id": "rfid1", "top": -450, "left": -1050, "attrs": {} },
+
+    { "type": "wokwi-dht22", "id": "dht1", "top": -350, "left": 500,
+      "attrs": { "temperature": "24", "humidity": "55" } },
+    { "type": "wokwi-potentiometer", "id": "soil1", "top": -50, "left": 500,
+      "attrs": { "value": "620" } },
+    { "type": "wokwi-photoresistor-sensor", "id": "light1", "top": -350, "left": 900,
+      "attrs": { "lux": "600", "threshold": "2.5" } },
+
+    { "type": "wokwi-relay-module", "id": "relay1", "top": -800, "left": -550, "attrs": {} },
+    { "type": "wokwi-relay-module", "id": "relay2", "top": -550, "left": -550, "attrs": {} },
+    { "type": "wokwi-led", "id": "ledp", "top": -790, "left": -200,
+      "attrs": { "color": "red", "label": "BOMBA" } },
+    { "type": "wokwi-led", "id": "ledl", "top": -540, "left": -200,
+      "attrs": { "color": "yellow", "label": "LAMPADA" } },
+
+    { "type": "wokwi-led", "id": "ledg", "top": 100, "left": 900,
+      "attrs": { "color": "green", "label": "OK" } },
+    { "type": "wokwi-led", "id": "ledr", "top": 180, "left": 900,
+      "attrs": { "color": "red", "label": "CRIT" } },
+    { "type": "wokwi-rgb-led", "id": "rgb1", "top": 400, "left": 900,
+      "attrs": { "common": "cathode" } },
+    { "type": "wokwi-buzzer", "id": "buz1", "top": 400, "left": 1080,
+      "attrs": { "volume": "0.05" } },
+
+    { "type": "wokwi-pushbutton", "id": "sw1", "top": 100, "left": 1080,
+      "attrs": { "label": "MODO" } },
+    { "type": "wokwi-pushbutton", "id": "sw2", "top": 220, "left": 1080,
+      "attrs": { "label": "MUDO" } }
+  ],
+
+  "connections": [
+    ["esp:TX", "$serialMonitor:RX", "", []],
+    ["esp:RX", "$serialMonitor:TX", "", []],
+
+    ["esp:3V3", "dht1:VCC", "red", ["v-60", "h-40"]],
+    ["esp:3V3", "light1:VCC", "red", ["v-50", "h-40"]],
+    ["esp:3V3", "soil1:VCC", "red", ["v-70", "*", "v-60"]],
+    ["esp:3V3", "rfid1:3.3V", "red", ["v-40", "h-40"]],
+
+    ["esp:5V", "lcd1:VCC", "red", ["v-120", "h-140", "*", "v-95"]],
+    ["esp:5V", "relay1:VCC", "red", ["v-130", "h-20"]],
+    ["esp:5V", "relay2:VCC", "red", ["v-110", "h-30"]],
+    ["esp:5V", "ledp:A", "red", ["v-140", "h-10"]],
+    ["esp:5V", "ledl:A", "red", ["v-100", "h-10"]],
+
+    ["esp:GND.1", "lcd1:GND", "black", ["v-30", "h-140", "*", "v-95"]],
+    ["esp:GND.1", "buz1:2", "black", ["v-90"]],
+    ["esp:GND.1", "relay1:COM", "black", ["v-20", "h-20"]],
+    ["esp:GND.1", "relay2:COM", "black", ["v-20", "h-30"]],
+
+    ["esp:GND.2", "relay1:GND", "black", ["v-40", "h-140"]],
+    ["esp:GND.2", "relay2:GND", "black", ["v-40", "h-130"]],
+    ["esp:GND.2", "soil1:GND", "black", ["v-90", "*", "v-60"]],
+    ["esp:GND.2", "rfid1:GND", "black", ["v-40", "h-150"]],
+
+    ["esp:GND.3", "dht1:GND", "black", ["v-70", "h-30"]],
+    ["esp:GND.3", "light1:GND", "black", ["v-40", "h-30"]],
+    ["esp:GND.3", "rgb1:COM", "black", ["v-80"]],
+    ["esp:GND.3", "ledg:C", "black", ["v-60"]],
+    ["esp:GND.3", "ledr:C", "black", ["h10"]],
+    ["esp:GND.3", "sw1:2.l", "black", ["v-50"]],
+    ["esp:GND.3", "sw2:2.l", "black", ["v-30"]],
+
+    ["esp:21", "lcd1:SDA", "cyan", ["v-160", "h-160", "*", "v-70"]],
+    ["esp:22", "lcd1:SCL", "purple", ["v-150", "h-150", "*", "v-70"]],
+
+    ["esp:5", "rfid1:SDA", "orange", []],
+    ["esp:15", "rfid1:RST", "white", []],
+    ["esp:18", "rfid1:SCK", "green", []],
+    ["esp:19", "rfid1:MISO", "blue", []],
+    ["esp:23", "rfid1:MOSI", "yellow", []],
+
+    ["esp:4", "dht1:SDA", "green", ["v-70", "h-30"]],
+    ["esp:34", "soil1:SIG", "green", ["v-80", "*", "v-60"]],
+    ["esp:35", "light1:AO", "green", ["v-80", "*", "v-60"]],
+
+    ["esp:25", "relay1:IN", "orange", ["v-100", "h-60"]],
+    ["esp:26", "relay2:IN", "orange", ["v-100", "h-60"]],
+    ["esp:27", "buz1:1", "yellow", ["v-90"]],
+
+    ["esp:16", "rgb1:R", "red", ["v-70"]],
+    ["esp:17", "rgb1:G", "green", ["v-70"]],
+    ["esp:12", "rgb1:B", "blue", ["v-70"]],
+
+    ["esp:13", "ledg:A", "green", ["v-90"]],
+    ["esp:14", "ledr:A", "red", ["v-90"]],
+
+    ["esp:32", "sw1:1.l", "white", ["v-30"]],
+    ["esp:33", "sw2:1.l", "white", ["v-30"]],
+
+    ["ledp:C", "relay1:NO", "red", []],
+    ["ledl:C", "relay2:NO", "yellow", []]
+  ],
+  "dependencies": {}
+}
