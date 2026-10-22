@@ -235,7 +235,8 @@ def read_all():
     try:
         sensor_dht.measure()
         data["temp"] = sensor_dht.temperature()
-        data["hum"]  = sensor_dht.humidity()
+        # Some builds return humidity as a float; the vase reports whole percent.
+        data["hum"]  = int(sensor_dht.humidity())
     except OSError as exc:
         # DHT22 needs ~2 s between reads; a failed CRC lands here too.
         print("Falha na leitura do DHT:", exc)

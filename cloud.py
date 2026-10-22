@@ -16,6 +16,7 @@
 import json
 import socket
 import ssl
+import time
 
 import config
 
@@ -43,11 +44,107 @@ def _read(sock, n):
     return sock.recv(n)
 
 
+def _send(sock, data):
+    """Write every byte: a TLS socket may accept a short write."""
+    sent = 0
+    while sent < len(data):
+        n = sock.write(data[sent:])
+        if n is None:
+            continue
+        if n <= 0:
+            raise CloudError("conexao fechada durante o envio")
+        sent += n
+
+
+def _split_head(reply):
+    """(header_blob, body_start), or None while the headers are incomplete."""
+    end = reply.find(b"\r\n\r\n")
+    if end < 0:
+        return None
+    return reply[:end], end + 4
+
+
+def _header(head_blob, name):
+    """Lowercased value of a response header, or b"" when absent."""
+    for line in head_blob.split(b"\r\n")[1:]:
+        key, _, value = line.partition(b":")
+        if key.strip().lower() == name:
+            return value.strip().lower()
+    return b""
+
+
+def _status(reply):
+    """HTTP status from the reply, or 0 when there is no status line."""
+    start = reply.find(b"HTTP/")
+    if start < 0:
+        return 0
+    fields = reply[start:].split(b"\r\n", 1)[0].split(b" ")
+    if len(fields) < 2:
+        return 0
+    try:
+        return int(fields[1].decode())
+    except (TypeError, ValueError):
+        return 0
+
+
+def _complete(reply):
+    """True once the reply is parseable, so we can stop reading."""
+    split = _split_head(reply)
+    if split is None:
+        return False
+    head_blob, body_start = split
+
+    if _status(reply) in (204, 304):
+        return True                             # no body by definition
+
+    length = _header(head_blob, b"content-length")
+    if length:
+        try:
+            return len(reply) - body_start >= int(length.decode())
+        except (TypeError, ValueError):
+            return False
+
+    if b"chunked" in _header(head_blob, b"transfer-encoding"):
+        return reply.endswith(b"0\r\n\r\n")
+
+    return False                                # read until the peer closes
+
+
+def _receive(sock, timeout):
+    """Read one HTTP response.
+
+    A zero-byte read is not EOF here. MicroPython's TLS socket returns an
+    empty result whenever mbedTLS has to consume a control record first, and
+    TLS 1.3 servers (Cloudflare, in front of Supabase) send a session ticket
+    right after the handshake. Treating that as the end of the response made
+    every request look like "HTTP 0" even though the server had answered.
+    """
+    deadline = time.time() + timeout
+    reply = b""
+    empties = 0
+    while True:
+        chunk = _read(sock, 512)
+        if chunk:
+            empties = 0
+            reply += chunk
+            if _complete(reply):
+                break
+        else:
+            empties += 1
+            if empties >= 2:
+                break                           # peer closed: end of stream
+            time.sleep_ms(50)
+        if time.time() > deadline:
+            break
+    return reply
+
+
 def _request(method, host, path, headers, body=b"", timeout=15):
     addr = socket.getaddrinfo(host, 443)[0][-1]
 
     raw = socket.socket()
     raw.settimeout(timeout)
+    sock = raw
     try:
         raw.connect(addr)
 
@@ -62,26 +159,24 @@ def _request(method, host, path, headers, body=b"", timeout=15):
             head += "%s: %s\r\n" % (name, value)
         head += "Content-Length: %d\r\n\r\n" % len(body)
 
-        sock.write(head.encode())
+        _send(sock, head.encode())
         if body:
-            sock.write(body)
+            _send(sock, body)
 
-        reply = b""
-        while True:
-            chunk = _read(sock, 256)
-            if not chunk:
-                break
-            reply += chunk
+        reply = _receive(sock, timeout)
     finally:
-        try:
-            raw.close()
-        except Exception:
-            pass
+        # Closing the TLS socket closes the transport underneath it too.
+        for s in (sock, raw):
+            try:
+                s.close()
+            except Exception:
+                pass
 
-    header_blob, _, reply_body = reply.partition(b"\r\n\r\n")
-    status_line = header_blob.split(b"\r\n", 1)[0].decode()
-    fields = status_line.split(" ")
-    status = int(fields[1]) if len(fields) > 1 else 0
+    status = _status(reply)
+    if status == 0:
+        raise CloudError("sem resposta HTTP, %d bytes lidos" % len(reply))
+
+    _, _, reply_body = reply.partition(b"\r\n\r\n")
     return status, reply_body
 
 
@@ -104,16 +199,26 @@ def ping():
     return status
 
 
+def _as_int(value):
+    """ingest_reading() declares its moisture, light and humidity parameters
+    as `int`, and PostgREST rejects a float instead of rounding it (22P02,
+    `invalid input syntax for type integer: "55.0"`). The DHT driver can
+    report humidity as a float, so normalise before sending."""
+    if value is None:
+        return None
+    return round(value)
+
+
 def publish(reading):
     """Upload one sample. Raises CloudError on anything but a 2xx."""
     _require_credentials()
     payload = {
         "p_uid":    config.DEVICE_UID,
         "p_secret": config.DEVICE_SECRET,
-        "p_soil":   reading.get("soil"),
-        "p_light":  reading.get("light"),
+        "p_soil":   _as_int(reading.get("soil")),
+        "p_light":  _as_int(reading.get("light")),
         "p_temp":   reading.get("temp"),
-        "p_hum":    reading.get("hum"),
+        "p_hum":    _as_int(reading.get("hum")),
     }
 
     status, reply = _request(

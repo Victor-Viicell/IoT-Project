@@ -129,6 +129,8 @@ The vase appears as **Vaso Wokwi** and its readings update every 15 seconds.
 | `Supabase respondeu 404 - schema não aplicado` | schema missing (not the case for this project) |
 | `credenciais ausentes` | `credentials.py` missing or empty |
 | `Supabase recusou a chave (HTTP 401)` | `SUPABASE_KEY` is wrong |
+| `Supabase inacessível (sem resposta HTTP, N bytes lidos)` | the request reached Supabase but the response was never read; usually a stale `cloud.py` (older versions reported this as `HTTP 0`) or a TLS timeout |
+| `falha no envio: HTTP 400 ... invalid input syntax for type integer` | a sample arrived with a decimal where the schema expects an integer; `cloud.py` rounds those before sending |
 | `falha no envio: HTTP 403 unknown device` | `DEVICE_SECRET` does not match `vase-wokwi` |
 | `LCD indisponível` | I2C/LCD issue; readings continue over serial |
 | `Bluetooth indisponivel nesta build` | expected on Wokwi if `ble_provision.py` is absent |
