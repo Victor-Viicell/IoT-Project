@@ -26,7 +26,14 @@ import config
 import wifi
 import cloud
 import provisioning
-import ble_provision
+
+try:
+    import ble_provision
+except ImportError:
+    # Some ESP32 MicroPython builds (including Wokwi's simulator) omit the
+    # bluetooth module. Provisioning is optional: config.py still supplies a
+    # network, and the vase simply runs without the BLE setup path.
+    ble_provision = None
 
 # ---------------------------------------------------------------------------
 #  Pin map  (must match diagram.json)
@@ -110,7 +117,12 @@ class LCD:
 
     def puts(self, text, col=0, row=0, pad=16):
         self.move(col, row)
-        for ch in str(text)[:pad - col].ljust(pad - col):
+        width = max(0, pad - col)
+        line = str(text)[:width]
+        # MicroPython's str has no ljust(): pad by hand so each frame blanks
+        # whatever the previous one left on the line.
+        line += " " * (width - len(line))
+        for ch in line:
             self._send(ord(ch), 1)
 
 
@@ -135,6 +147,31 @@ if USE_LCD:
 
 
 # ---------------------------------------------------------------------------
+#  Pairing display
+#  The vase is its own pairing surface: the code the app needs is printed to
+#  the serial monitor and shown on the LCD whenever there is no network, and
+#  for a moment on every boot so a reset cannot hide it.
+# ---------------------------------------------------------------------------
+def show_pairing(reason, announce=True):
+    """Put the pairing code on the vase's own display.
+
+    `announce` is false for the periodic redraw in the main loop, which would
+    otherwise repeat the same serial line every couple of seconds.
+    """
+    if announce:
+        print("%s. Codigo para o app: %s" % (reason, config.DEVICE_CLAIM_CODE))
+    if lcd:
+        lcd.puts(reason, row=0)
+        lcd.puts(config.DEVICE_CLAIM_CODE, row=1)
+
+
+# Boot/reset: hold the code on screen long enough to read it before WiFi takes
+# over the display.
+show_pairing("Plantkeeper")
+time.sleep(2)
+
+
+# ---------------------------------------------------------------------------
 #  Network bring-up
 #  Nothing here is fatal: a vase with no WiFi still reads its sensors and
 #  keeps the LCD alive, it just cannot upload.
@@ -142,12 +179,18 @@ if USE_LCD:
 #  A vase that has never been configured (no credentials in flash and none
 #  compiled into config.py) opens Bluetooth and waits for the app.
 # ---------------------------------------------------------------------------
+def provision_bluetooth(timeout=None):
+    """Run BLE provisioning when this build includes the bluetooth module."""
+    if ble_provision is None:
+        print("Bluetooth indisponivel nesta build")
+        return None
+    return ble_provision.provision(timeout)
+
+
 if provisioning.load() is None and not config.WIFI_SSID:
     print("Nunca configurado - abrindo o Bluetooth para o aplicativo")
-    if lcd:
-        lcd.puts("Configure pelo app", row=0)
-        lcd.puts("Bluetooth ativo", row=1)
-    if ble_provision.provision() is None:
+    show_pairing("Conecte no app")
+    if provision_bluetooth() is None:
         print("Seguindo sem rede - as leituras ficarao locais")
 
 cloud_ok = wifi.connect() is not None
@@ -156,17 +199,23 @@ cloud_ok = wifi.connect() is not None
 # one case worth reopening Bluetooth for without wiping the board first.
 if not cloud_ok and provisioning.load() is not None:
     print("Rede guardada falhou - reabrindo o Bluetooth por 60 s")
-    if lcd:
-        lcd.puts("Rede falhou", row=0)
-        lcd.puts("Bluetooth ativo", row=1)
-    if ble_provision.provision(timeout=60) is not None:
+    show_pairing("Rede falhou")
+    if provision_bluetooth(timeout=60) is not None:
         cloud_ok = wifi.connect() is not None
 
 if not cloud_ok:
     print("Sem WiFi - as leituras ficarão locais")
 else:
     try:
-        print("Supabase acessível: HTTP %d" % cloud.ping())
+        status = cloud.ping()
+        if 200 <= status < 300:
+            print("Supabase acessível: HTTP %d" % status)
+        elif status == 404:
+            cloud_ok = False
+            print("Supabase respondeu 404 - schema não aplicado; leituras ficarão locais")
+        else:
+            cloud_ok = False
+            print("Supabase recusou a chave (HTTP %d) - leituras ficarão locais" % status)
     except Exception as exc:
         cloud_ok = False
         print("Supabase inacessível (%s) - executando offline" % exc)
@@ -202,9 +251,15 @@ def show(data):
           % (data["soil"], data["light"], t, h))
 
     if lcd:
-        # every LCD line must fit 16 columns
-        lcd.puts("S%3d L%3d" % (data["soil"], data["light"]), row=0)
-        lcd.puts("%s  U%s" % (t, h), row=1)
+        if wifi.is_up():
+            # every LCD line must fit 16 columns
+            lcd.puts("S%3d L%3d" % (data["soil"], data["light"]), row=0)
+            lcd.puts("%s  U%s" % (t, h), row=1)
+        else:
+            # No network: keep the vase's pairing interface visible. Readings
+            # continue on the serial monitor, and come back to the LCD as soon
+            # as WiFi reconnects.
+            show_pairing("Conecte no app", announce=False)
 
 
 # ---------------------------------------------------------------------------

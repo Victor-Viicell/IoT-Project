@@ -24,6 +24,16 @@ class CloudError(Exception):
     pass
 
 
+def _require_credentials():
+    """Fail with a readable message instead of a 401 when credentials.py is
+    missing -- the file is gitignored, so a fresh clone hits this."""
+    if not config.SUPABASE_KEY or not config.DEVICE_SECRET:
+        raise CloudError(
+            "credenciais ausentes: copie credentials.example.py para "
+            "credentials.py e preencha SUPABASE_KEY e DEVICE_SECRET"
+        )
+
+
 def _read(sock, n):
     """MicroPython's wrapped TLS socket exposes read() or recv(), depending
     on the port and mbedtls build. Support both."""
@@ -76,16 +86,27 @@ def _request(method, host, path, headers, body=b"", timeout=15):
 
 
 def ping():
-    """Cheap reachability check -- hits PostgREST's root."""
-    status, _ = _request("GET", config.SUPABASE_HOST, "/rest/v1/", {
-        "apikey": config.SUPABASE_KEY,
-        "Authorization": "Bearer " + config.SUPABASE_KEY,
-    }, timeout=10)
+    """Cheap reachability check on the RPC surface the firmware uses.
+
+    The publishable key maps to `anon`, which deliberately has no table access
+    (RLS plus no SELECT grant), so a `select` on `devices` would report 401 even
+    when everything is fine. `ping()` is a constant-returning RPC granted to
+    anon: it answers 200 once the schema is applied and 404 (PGRST202) when it
+    is not -- which is exactly the difference worth logging.
+    """
+    _require_credentials()
+    status, _ = _request(
+        "POST", config.SUPABASE_HOST, "/rest/v1/rpc/ping", {
+            "apikey": config.SUPABASE_KEY,
+            "Authorization": "Bearer " + config.SUPABASE_KEY,
+            "Content-Type": "application/json",
+        }, b"{}", timeout=10)
     return status
 
 
 def publish(reading):
     """Upload one sample. Raises CloudError on anything but a 2xx."""
+    _require_credentials()
     payload = {
         "p_uid":    config.DEVICE_UID,
         "p_secret": config.DEVICE_SECRET,

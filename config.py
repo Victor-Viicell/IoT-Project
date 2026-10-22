@@ -3,7 +3,8 @@
 #
 #  HARDCODED FOR NOW. The plan is BLE provisioning from the phone app, which
 #  writes WiFi credentials + device identity here at runtime. Until then this
-#  file is the single place to edit.
+#  file is the single place to edit -- except for credentials.py, which holds
+#  the two secrets that must not be committed.
 #
 #  NOTE: Wokwi gives every ESP32 a virtual open AP called "Wokwi-GUEST" -- no
 #  password. On your real board, change these to your router's credentials.
@@ -26,19 +27,22 @@ WIFI_PASS = ""
 SUPABASE_HOST = "zubizzqwjteajycnwesf.supabase.co"
 
 # Modern publishable key (recommended). If PostgREST rejects it, swap in the
-# legacy anon JWT from Dashboard -> Settings -> API Keys:
-#   eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR3ZGVlZ3pj
-#   dm9udXFxdGxicXd1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MDM3NTQsImV4cCI6MjA5NDM3OTc1NH0.
-#   ennqHEOwkqkbeNAupYTmNRVtdt2tBYxkVhAZMoyhgKY
-SUPABASE_KEY = "sb_publishable_dFYXdB8zZxnfbBZIrWsLvg_zIOP3yeR"
+# legacy anon JWT from Dashboard -> Settings -> API Keys. Both this key and the
+# device secret below are kept out of git: copy credentials.example.py to
+# credentials.py and fill them in. Missing credentials leave the board running
+# offline (cloud.py refuses to publish) instead of failing at boot.
+try:
+    from credentials import DEVICE_SECRET, SUPABASE_KEY
+except ImportError:
+    SUPABASE_KEY = ""
+    DEVICE_SECRET = ""
 
 
 # ---------------------------------------------------------------------------
-#  Device identity -- must match the seed row at the bottom of
-#  supabase/schema.sql, or ingest_reading() rejects every sample.
+#  Device identity -- must match the row in supabase/seed.local.sql, or
+#  ingest_reading() rejects every sample.
 # ---------------------------------------------------------------------------
 DEVICE_UID    = "vase-01"
-DEVICE_SECRET = "dev_7f3a9c2e5b8d4160a2f9c3e7b5d08214"
 
 
 # ---------------------------------------------------------------------------
@@ -53,7 +57,8 @@ BLE_NAME = "Plantkeeper-01"
 # Printed on the label and shown on the LCD. The app reads it over Bluetooth so
 # connecting and claiming happen in one go. It is not a secret -- it is the
 # same string the user would type by hand, and reading it needs a live BLE
-# connection within radio range.
+# connection within radio range. Keep it to 16 characters or fewer so it fits
+# on one LCD line.
 DEVICE_CLAIM_CODE = "PLANT-4K7Q"
 
 # 128-bit UUIDs for the provisioning GATT service. These must match the app's

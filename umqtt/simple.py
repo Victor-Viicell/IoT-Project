@@ -1,3 +1,12 @@
+# Vendored MicroPython MQTT client. The firmware does not import it (cloud.py
+# speaks PostgREST directly), and its socket API predates the current port, so
+# skip type checking for this file rather than rewriting third-party code.
+# pyright: reportAttributeAccessIssue=false
+# pyright: reportOptionalMemberAccess=false
+# pyright: reportOptionalCall=false
+# pyright: reportArgumentType=false
+# pyright: reportCallIssue=false
+
 import socket
 import struct
 from binascii import hexlify

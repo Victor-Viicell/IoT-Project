@@ -1,0 +1,29 @@
+"""Minimal MicroPython network stubs for editor type checking only."""
+
+from typing import Any
+
+STA_IF: int
+AP_IF: int
+STAT_IDLE: int
+STAT_CONNECTING: int
+STAT_WRONG_PASSWORD: int
+STAT_NO_AP_FOUND: int
+STAT_CONNECT_FAIL: int
+STAT_GOT_IP: int
+
+class WLAN:
+    def __init__(self, interface_id: int) -> None: ...
+    def active(self, is_active: bool | None = None) -> bool: ...
+    def connect(
+        self,
+        ssid: str | None = None,
+        key: str | None = None,
+        *,
+        bssid: bytes | None = None,
+    ) -> None: ...
+    def disconnect(self) -> None: ...
+    def isconnected(self) -> bool: ...
+    def status(self, param: str = ...) -> Any: ...
+    def ifconfig(self, config: tuple[str, str, str, str] | None = None) -> tuple[str, str, str, str]: ...
+    def config(self, param: str) -> Any: ...
+    def scan(self) -> list[tuple[bytes, bytes, int, int, int, bool]]: ...

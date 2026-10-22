@@ -8,7 +8,6 @@ import time
 
 import network
 
-import config
 import provisioning
 
 

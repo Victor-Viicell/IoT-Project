@@ -1,0 +1,13 @@
+# MicroPython firmware, not a CPython application. These rules assume idioms
+# that do not apply to the board, so they are disabled project-wide instead of
+# annotated line by line.
+target-version = "py38"
+extend-exclude = ["umqtt"]
+
+[lint]
+ignore = [
+  "I001",   # import blocks mirror the hardware/network grouping
+  "UP031",  # percent formatting is deliberate and supported by MicroPython
+  "BLE001", # broad excepts keep hardware bring-up from crashing the board
+  "S110",   # best-effort cleanup has no useful log line
+]

@@ -5,15 +5,19 @@
 --  Target project: zubizzqwjteajycnwesf (the one the phone app points at, in
 --  plantkeeper/.env). The firmware's config.py must name the same host.
 --
---  Re-running this file is safe: tables are `if not exists`, functions are
---  `or replace`, the seed upserts. It only ever adds -- with one deliberate
---  exception: the retired `rain` column is dropped (see the note on `readings`),
---  which discards the values already stored in it.
+--  Re-running this file is safe: tables are `if not exists` and functions are
+--  `or replace`. It only ever adds -- with one deliberate exception: the
+--  retired `rain` column is dropped (see the note on `readings`), which
+--  discards the values already stored in it.
+--
+--  The device row is seeded separately, from seed.local.sql (gitignored), so
+--  the device secret never lands in this repository. See seed.example.sql.
 -- ============================================================================
 
 -- ---------------------------------------------------------------------------
 --  devices: one row per vase
---    device_uid / device_secret  -> flashed into the firmware (hardcoded for now)
+--    device_uid / device_secret  -> flashed into the firmware; the secret
+--                                   comes from credentials.py, not git
 --    claim_code                  -> short code the user types in the phone app
 --                                   to "sign the vase as their vase"
 -- ---------------------------------------------------------------------------
@@ -72,17 +76,21 @@ alter table public.devices  enable row level security;
 alter table public.readings enable row level security;
 
 -- Owners may read their own device and its readings.
+--
+-- `(select auth.uid())` keeps the function stable for the whole statement, so
+-- Postgres evaluates it once instead of once per candidate row (Supabase's
+-- auth_rls_initplan advisor flags the bare form).
 drop policy if exists devices_select_own on public.devices;
 create policy devices_select_own on public.devices
   for select to authenticated
-  using (owner_id = auth.uid());
+  using (owner_id = (select auth.uid()));
 
 drop policy if exists readings_select_own on public.readings;
 create policy readings_select_own on public.readings
   for select to authenticated
   using (exists (select 1 from public.devices d
                  where d.id = readings.device_id
-                   and d.owner_id = auth.uid()));
+                   and d.owner_id = (select auth.uid())));
 
 -- Owners may rename their own vase.
 --
@@ -102,8 +110,8 @@ create policy readings_select_own on public.readings
 drop policy if exists devices_update_own on public.devices;
 create policy devices_update_own on public.devices
   for update to authenticated
-  using (owner_id = auth.uid())
-  with check (owner_id = auth.uid());
+  using (owner_id = (select auth.uid()))
+  with check (owner_id = (select auth.uid()));
 
 -- NOTE: there is deliberately NO insert policy and no write policy on
 -- `readings`. Ingestion happens only through the SECURITY DEFINER function
@@ -234,13 +242,49 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+--  ping(): the firmware's boot-time probe
+--  SECURITY INVOKER and constant-returning, so it proves PostgREST and this
+--  schema are live without touching a table and can be granted to anon.
+-- ---------------------------------------------------------------------------
+create or replace function public.ping()
+returns text
+language sql
+stable
+security invoker
+set search_path = ''
+as $$ select 'pong'::text $$;
+
+comment on function public.ping() is
+  'Sonda sem tabela usada pelo firmware para confirmar que o schema foi aplicado.';
+
+-- ---------------------------------------------------------------------------
 --  Making the tables reachable through the Data API
 --
 --  RLS decides which ROWS a role may see; it does not decide whether the role
 --  may touch the table at all. PostgREST needs both, so grant just the reads
---  the app performs. `anon` deliberately gets nothing: the only unauthenticated
---  path into this schema is ingest_reading() below.
+--  the app performs. `anon` deliberately gets no table access at all: the only
+--  unauthenticated paths into this schema are ingest_reading() and ping().
+--
+--  Supabase matters here: its schema-wide default privileges hand anon and
+--  authenticated ALL on every new table, sequence and function. Adding grants
+--  on top of that does NOT narrow anything -- on a fresh project anon would
+--  still hold INSERT/UPDATE/DELETE/TRUNCATE on both tables, and owners could
+--  rewrite device_secret and claim_code with a plain update. The revokes below
+--  are what make the grants below them meaningful; without them this file is
+--  only least-privilege on a bare Postgres.
 -- ---------------------------------------------------------------------------
+revoke all on table public.devices  from anon;
+revoke all on table public.readings from anon;
+
+revoke insert, update, delete, truncate, references, trigger, maintain
+  on table public.devices from authenticated;
+revoke insert, update, delete, truncate, references, trigger, maintain
+  on table public.readings from authenticated;
+
+-- Ingestion runs through ingest_reading() (SECURITY DEFINER), so neither role
+-- needs sequence access on the readings identity column.
+revoke all on sequence public.readings_id_seq from anon, authenticated;
+
 grant select on public.devices  to authenticated;
 grant select on public.readings to authenticated;
 
@@ -253,34 +297,39 @@ grant update (name) on public.devices to authenticated;
 -- ---------------------------------------------------------------------------
 --  Function access
 --
---  Postgres grants EXECUTE to PUBLIC on every new function, and the functions
---  below are SECURITY DEFINER -- they run as the table owner and bypass RLS.
---  Left as-is that makes them callable by any role, so revoke the default and
---  hand out only what each caller needs:
+--  Postgres grants EXECUTE to PUBLIC on every new function, and the three
+--  table-touching functions below are SECURITY DEFINER -- they run as the table
+--  owner and bypass RLS. Left as-is that makes them callable by any role, so
+--  revoke the default and hand out only what each caller needs:
 --    ingest_reading() <- the firmware, which holds the publishable key (anon)
+--    ping()           <- the firmware's health probe (anon)
 --    claim_device()   <- a signed-in user, whose uid is checked in the body
 --    release_device() <- a signed-in user, ditto
+--
+--  The default privileges also grant EXECUTE to anon explicitly, which the
+--  `revoke ... from public` below does not remove. Revoke anon by name from the
+--  two app-only functions, or the publishable key can reach them (harmless only
+--  because each checks auth.uid(), but the intent is already clear).
 -- ---------------------------------------------------------------------------
 revoke execute on function
   public.ingest_reading(text, text, int, int, numeric, int) from public;
+revoke execute on function public.ping() from public;
 revoke execute on function public.claim_device(text) from public;
 revoke execute on function public.release_device(uuid) from public;
 
+revoke execute on function public.ping()              from authenticated;
+revoke execute on function public.claim_device(text)   from anon;
+revoke execute on function public.release_device(uuid) from anon;
+
 grant execute on function
-  public.ingest_reading(text, text, int, int, numeric, int) to anon, authenticated;
+  public.ingest_reading(text, text, int, int, numeric, int) to anon;
+grant execute on function public.ping() to anon;
 grant execute on function public.claim_device(text) to authenticated;
 grant execute on function public.release_device(uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
---  Seed: the vase you are building right now.
---  device_uid / device_secret MUST match config.py exactly.
---  Change claim_code before shipping anything to a real user.
+--  Seed
+--  Deliberately not in this file: the device secret must not live in a tracked
+--  one. Copy seed.example.sql to seed.local.sql, fill in the real values and
+--  run it after this file.
 -- ---------------------------------------------------------------------------
-insert into public.devices (device_uid, device_secret, claim_code, name)
-values ('vase-01',
-        'dev_7f3a9c2e5b8d4160a2f9c3e7b5d08214',
-        'PLANT-4K7Q',
-        'Vaso protótipo')
-on conflict (device_uid) do update
-  set device_secret = excluded.device_secret,
-      claim_code    = excluded.claim_code;

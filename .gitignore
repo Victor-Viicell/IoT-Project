@@ -1,0 +1,12 @@
+# Device secrets and credentials -- see credentials.example.py
+credentials.py
+
+# Board-local state written at runtime
+wifi_config.json
+
+# Local database seed -- see supabase/seed.example.sql
+supabase/seed.local.sql
+
+# Python bytecode
+__pycache__/
+*.pyc
